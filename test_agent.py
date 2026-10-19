@@ -1,22 +1,24 @@
 """
-🎙️ Stop 5: The Automated Test Suite — Proof It Works
+🧪 Automated Test Suite — Testing AI Agents & Multi-Tier Architecture
 
-This script validates the agent backend, session memory, latency, and service connectivity
-without requiring any manual browser interaction or external testing dependencies.
+===============================================================================
+BEGINNER DEVELOPER TESTING GUIDE:
+===============================================================================
 
-Test Structure:
-1. test_agent_graph_initialization:
-   - Verifies main.build_graph() compiles cleanly with all middlewares.
-2. test_agent_single_turn_response:
-   - Measures prompt turnaround latency (typically < 1s via Groq).
-3. test_agent_multi_turn_memory:
-   - Simulates a two-turn conversation on the same thread_id.
-   - Feeds a secret ('dragonfruit') in Turn 1 and asserts the agent recalls it in Turn 2.
-4. test_live_services_health:
-   - Checks HTTP status of all 3 tiers (:3002 Frontend, :4002 Gateway, :8002 Backend).
+1. Why do we need automated tests for an AI agent?
+   In traditional web apps, functions are deterministic (2 + 2 always equals 4).
+   With LLMs, outputs can vary. Automated tests ensure that:
+   - The agent's graph compiles and initializes without runtime syntax errors.
+   - Guardrails are actively enforced (the bot never strays into non-India topics).
+   - Memory actually works across multiple turns (using thread_id).
+   - Latency remains acceptable (< 1-2 seconds with Groq).
+   - All 3 architectural tiers (:3002, :4002, :8002) are healthy and listening.
 
-Usage:
-    python test_agent.py
+2. How to run this test suite:
+   $ python test_agent.py
+
+   No browsers, Selenium, or heavy UI testing frameworks needed!
+   It tests the agent directly through code.
 """
 
 import os
@@ -25,12 +27,22 @@ import urllib.request
 import urllib.error
 from dotenv import load_dotenv
 
-# Load environment
+# Load environment variables (.env) so API keys (GROQ_API_KEY / OPENAI_API_KEY) are available
 load_dotenv(override=True)
 
 
 def test_agent_graph_initialization():
-    """Verify that the LangGraph agent graph compiles without errors."""
+    """
+    Test 1: Agent Graph Compilation
+    --------------------------------
+    WHAT IT TESTS:
+    Verifies that LangGraph can successfully build and compile the state graph,
+    connect the LLM, register the MemorySaver checkpointer, and attach middlewares.
+
+    WHY IT MATTERS:
+    If there is a typo in model names, missing dependencies, or syntax errors
+    in graph configuration, this will catch it immediately before deployment.
+    """
     import main
     graph = main.load_graph()
     assert graph is not None, "Failed to load agent graph"
@@ -38,7 +50,19 @@ def test_agent_graph_initialization():
 
 
 def test_india_travel_recommendation():
-    """Verify that the agent provides authentic India travel advice."""
+    """
+    Test 2: Domain Knowledge & Latency Benchmark
+    --------------------------------------------
+    WHAT IT TESTS:
+    Sends an authentic Indian tourism question ("historic forts in Rajasthan")
+    and verifies:
+    1. The agent responds with meaningful, non-empty advice.
+    2. Response turnaround latency (with Groq LPUs, usually < 1.0s).
+
+    WHY IT MATTERS:
+    Proves that inference is functioning end-to-end and measures real-world
+    speed for user experience benchmarking.
+    """
     import main
     graph = main.load_graph()
     config = {"configurable": {"thread_id": "test-india-query"}}
@@ -59,7 +83,18 @@ def test_india_travel_recommendation():
 
 
 def test_out_of_scope_guardrail_rejection():
-    """Verify that non-India travel questions (like coding) are strictly declined."""
+    """
+    Test 3: Negative Constraints & Guardrail Verification
+    ------------------------------------------------------
+    WHAT IT TESTS:
+    Prompts the agent to write Python code (a quicksort algorithm).
+    Because YatriAI is strictly a travel agent for India, it MUST refuse
+    to write code, solve math problems, or discuss non-travel topics.
+
+    WHY IT MATTERS:
+    In production enterprise AI, guardrails prevent brand liability,
+    API token abuse, and hallucination on unapproved topics.
+    """
     import main
     graph = main.load_graph()
     config = {"configurable": {"thread_id": "test-guardrail"}}
@@ -72,6 +107,8 @@ def test_out_of_scope_guardrail_rejection():
 
     print(f"\n✓ Out-of-scope test response:")
     print(f"  Agent response: \"{response['messages'][-1].content.strip()[:120]}...\"")
+    
+    # Assert that the agent politely mentions its India travel focus or declines out-of-scope queries
     assert "india" in last_msg or "travel" in last_msg or "cannot" in last_msg or "exclusively" in last_msg, (
         f"Agent did not properly enforce India Travel guardrails: {last_msg}"
     )
@@ -79,21 +116,29 @@ def test_out_of_scope_guardrail_rejection():
 
 def test_agent_multi_turn_memory():
     """
-    Verify multi-turn state persistence across turns with the same thread_id.
-    - Turn 1: Introduce budget of ₹45,000 for a trip to Goa.
-    - Turn 2: Query the agent and assert it remembers the budget.
+    Test 4: Stateful Multi-Turn Memory Verification
+    ------------------------------------------------
+    WHAT IT TESTS:
+    Simulates a continuous 2-turn conversation sharing the SAME 'thread_id':
+    - Turn 1: User says: "I am planning a 4-day trip to Goa with a budget of ₹45,000."
+    - Turn 2: User asks: "What was my budget for the Goa trip?"
+    
+    WHY IT MATTERS:
+    Verifies that the MemorySaver checkpointer accurately persists state across
+    turns on the backend, allowing users to have natural, contextual discussions
+    without re-explaining their constraints in every message.
     """
     import main
     graph = main.load_graph()
     unique_thread_id = f"test-memory-{int(time.time())}"
     config = {"configurable": {"thread_id": unique_thread_id}}
 
-    # Turn 1: Set travel parameters
+    # Turn 1: Introduce budget parameter
     t1_input = "I am planning a 4-day trip to Goa with a budget of ₹45,000. Keep this in mind."
     t1_res = graph.invoke({"messages": [{"role": "user", "content": t1_input}]}, config=config)
     assert t1_res["messages"][-1].content, "Turn 1 did not produce output"
 
-    # Turn 2: Recall travel budget
+    # Turn 2: Query the agent to recall the budget
     t2_input = "What was my budget for the Goa trip? Mention the number."
     t2_res = graph.invoke({"messages": [{"role": "user", "content": t2_input}]}, config=config)
     answer = t2_res["messages"][-1].content
@@ -104,7 +149,11 @@ def test_agent_multi_turn_memory():
 
 
 def check_port_health(name: str, url: str) -> bool:
-    """Helper to check if a service endpoint is running and accessible."""
+    """
+    HTTP Probe Helper:
+    Pings an HTTP endpoint with a 2-second timeout to check if the server is active.
+    Returns True if the port responds with HTTP 200 or 404 (indicating the server is alive).
+    """
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "TestAgent/1.0"})
         with urllib.request.urlopen(req, timeout=2) as resp:
@@ -116,7 +165,19 @@ def check_port_health(name: str, url: str) -> bool:
 
 
 def test_live_services_health():
-    """Check connectivity to all 3 application tiers."""
+    """
+    Test 5: Multi-Tier Network Connectivity Check
+    ----------------------------------------------
+    WHAT IT TESTS:
+    Pings all three application ports:
+    - Port 3002: Vite + React Frontend UI
+    - Port 4002: CopilotKit Runtime Gateway
+    - Port 8002: LangGraph FastAPI Backend
+
+    WHY IT MATTERS:
+    Allows developers to instantly diagnose which specific tier is down
+    if the UI isn't responding in their browser.
+    """
     endpoints = {
         "Frontend UI (:3002)": "http://localhost:3002",
         "CopilotKit Runtime (:4002)": "http://localhost:4002/api/copilotkit/info",

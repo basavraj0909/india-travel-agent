@@ -1,22 +1,41 @@
 """
-🎙️ Stop 3: The Brain — LangGraph & Groq Backend
+🎙️ The Brain — YatriAI LangGraph & Groq Backend Server (Port 8002)
 
-This is the primary Python backend server running on Port 8002.
-It uses LangGraph to manage stateful multi-turn agent conversations and
-streams responses using the AG-UI (Server-Sent Events) protocol.
+===============================================================================
+BEGINNER DEVELOPER ARCHITECTURE GUIDE:
+===============================================================================
 
-Key Architectural Components:
-1. Model Connector (build_chat_model):
-   - Dynamically loads GROQ_API_KEY or OPENAI_API_KEY from .env.
-   - Routes through Groq's high-speed API (openai/gpt-oss-120b) by default.
+1. What is this file?
+   This file is the "Brain" of YatriAI (यात्री AI). It runs a Python FastAPI web server
+   on Port 8002 that hosts an autonomous LangGraph agent powered by Groq / OpenAI.
 
-2. Agent Graph with Memory (build_graph):
-   - MemorySaver(): Persists conversation state across multiple turns using thread IDs.
-   - CopilotKitMiddleware(): Bridges LangGraph events into CopilotKit frontend tools.
+2. How does an Agent differ from a standard Chatbot?
+   - Simple Chatbot: Takes a prompt string, calls an LLM, and sends back a static JSON string.
+     If you refresh the page, the bot forgets who you are.
+   - LangGraph Agent: Operates on a state graph (nodes & edges). It maintains long-term
+     session memory (via MemorySaver), can call external tools (weather, train schedules,
+     itinerary cards), and streams tokens in real time.
 
-3. AG-UI FastAPI Endpoint:
-   - Exposes an SSE stream on "/" that emits token chunks, tool execution events,
-     and run completion events directly to the gateway.
+3. The 3-Tier Decoupled Flow:
+   [1. React UI (:3002)] 
+         │ (User types: "Plan 4 days in Jaipur")
+         ▼
+   [2. CopilotRuntime Gateway (:4002)] 
+         │ (Routes request based on agentId="default")
+         ▼
+   [3. LangGraph FastAPI Backend (:8002)] <-- YOU ARE HERE!
+         │ (Retrieves conversation history via thread_id, applies guardrails, calls LLM)
+         ▼
+   [4. Groq / OpenAI LLM]
+         │ (Streams tokens back via Server-Sent Events [SSE] protocol)
+         ▼
+   [Live typewriter response in React chat bubble!]
+
+4. What are Domain Guardrails?
+   In enterprise applications, you never want your travel assistant answering coding
+   questions, writing essays, or discussing world politics. We enforce strict "guardrails"
+   inside the system prompt that instruct the LLM to politely refuse any query that is
+   not about traveling within India.
 """
 
 from __future__ import annotations
@@ -45,13 +64,17 @@ from langchain.agents import create_agent
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
 
+# Default networking configuration
 HOST = "0.0.0.0"
 PORT = 8002
 MODEL = "gpt-4.1"
 
 
 def _ensure_openai_api_key() -> None:
-    """Ensure at least one valid LLM API key is present."""
+    """
+    Ensure at least one valid LLM API key (GROQ_API_KEY or OPENAI_API_KEY) is present.
+    If not, attempts to load from helper utility or raises a helpful error.
+    """
     if os.environ.get("GROQ_API_KEY") or os.environ.get("OPENAI_API_KEY"):
         return
 
@@ -66,11 +89,17 @@ def _ensure_openai_api_key() -> None:
 
 def build_chat_model(model_name: str = MODEL):
     """
-    1. The Model Connector
-    Inspects .env to configure either Groq or OpenAI:
-    - If GROQ_API_KEY is present: Connects to Groq's high-speed OpenAI-compatible
-      endpoint (https://api.groq.com/openai/v1) using 'openai/gpt-oss-120b'.
-    - Otherwise: Falls back to standard OpenAI ChatOpenAI.
+    Component 1: The Model Connector (LLM Factory)
+    -------------------------------------------------
+    This function dynamically connects to the best available LLM provider:
+    
+    1. Groq (High-Speed Inference):
+       - If GROQ_API_KEY is found in .env, it routes inference to Groq's LPUs
+         (Language Processing Units) using 'openai/gpt-oss-120b'.
+       - Benefit: Delivers response latency under ~0.8s (10x faster than standard APIs).
+       
+    2. OpenAI (Fallback):
+       - If no Groq key is found, it seamlessly falls back to standard OpenAI.
     """
     load_dotenv(override=True)
     groq_key = os.environ.get("GROQ_API_KEY")
@@ -91,6 +120,11 @@ def build_chat_model(model_name: str = MODEL):
     return ChatOpenAI(model=model_name, api_key=api_key if api_key else None)
 
 
+# =============================================================================
+# Component 2: System Prompt & Domain Guardrails
+# =============================================================================
+# The System Prompt is the "charter" or "instruction manual" for the LLM.
+# It sets the persona, tone, rules, and negative constraints (what NOT to answer).
 INDIA_TRAVEL_SYSTEM_PROMPT = (
     "You are 'YatriAI' (यात्री AI), an expert, culturally rich, and highly specialized travel assistant dedicated EXCLUSIVELY to tourism and travel in India (Bharat).\n\n"
     "STRICT SCOPE & GUARDRAILS:\n"
@@ -108,7 +142,24 @@ INDIA_TRAVEL_SYSTEM_PROMPT = (
 
 
 def build_graph(model_name: str = MODEL):
-    """Build the core LangGraph workflow for the India Travel Agent."""
+    """
+    Component 3: LangGraph Agent Graph with Persistent Memory
+    ----------------------------------------------------------
+    Builds the state graph that drives the conversation:
+
+    - chat_model: The LLM configured above (Groq / OpenAI).
+    - checkpointer=MemorySaver(): 
+        CRITICAL: Instead of storing chat history in a fragile browser cookie
+        or frontend localStorage, MemorySaver stores state on the server.
+        Every user conversation receives a unique 'thread_id'. When the user
+        sends a new message, LangGraph reloads past turns for that thread_id
+        so the agent has complete context of earlier discussion.
+    - middleware=[CopilotKitMiddleware()]:
+        Bridges LangGraph internal events into CopilotKit frontend protocols,
+        allowing the agent to trigger generative UI components on the client.
+    - system_prompt:
+        Enforces our India Travel guardrails and persona.
+    """
     chat_model = build_chat_model(model_name=model_name)
     return create_agent(
         model=chat_model,
@@ -119,7 +170,21 @@ def build_graph(model_name: str = MODEL):
     )
 
 
-# 3. FastAPI AG-UI Endpoint
+# =============================================================================
+# Component 4: FastAPI Server & AG-UI Server-Sent Events (SSE) Endpoint
+# =============================================================================
+# Exposes an AG-UI compatible streaming endpoint at http://localhost:8002/.
+#
+# Why Server-Sent Events (SSE)?
+# - Standard REST APIs wait until the ENTIRE answer is generated before returning.
+#   For an LLM generating a 400-word itinerary, the user would stare at a spinner for 10s.
+# - SSE opens a persistent one-way HTTP connection that streams token chunks as they
+#   are generated, giving the user an instant, real-time "typewriter" animation!
+#
+# What are 'name' and 'description' used for?
+# - name: Unique agent identifier visible in discovery endpoints.
+# - description: Used by multi-agent orchestrator gateways to route questions
+#   to specialized agents based on user intent.
 app = FastAPI(title="YatriAI - India Travel Agent API")
 graph = build_graph()
 agent = LangGraphAGUIAgent(

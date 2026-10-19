@@ -1,17 +1,27 @@
 /**
- * 🎙️ Stop 2: The Gateway — The Traffic Controller
+ * 🎙️ The Gateway — Node.js + Hono API Router (Port 4002)
  *
- * This Node.js + Hono server acts as the API Gateway between the React UI
- * and the various Python backend agents.
+ * ============================================================================
+ * BEGINNER DEVELOPER ARCHITECTURE GUIDE:
+ * ============================================================================
  *
- * The Problem It Solves:
- * Instead of the browser directly hardcoding connection logic, WebSocket/SSE
- * handling, and auth for multiple disparate Python servers, this gateway provides
- * a unified entry point (/api/copilotkit) on Port 4002.
+ * 1. What is this file?
+ *    This file runs a lightweight Node.js web server using the Hono framework.
+ *    It acts as the single central "API Gateway" (Traffic Controller) between the
+ *    React frontend UI and your backend Python AI agents.
  *
- * How Routing Works:
- * - When React sends a request with agentId = "default", it routes to LangGraph (port 8002).
- * - When React sends a request with agentId = "gemini", it routes to Google ADK (port 8009).
+ * 2. Why don't we connect React directly to Python (Port 8002)?
+ *    - Security & Auth: Keeps backend server URLs and potential API tokens hidden.
+ *    - Protocol Normalization: React doesn't need to know if the backend is written
+ *      in Python, Go, or Java, or whether it uses LangGraph or Google ADK.
+ *    - Multi-Agent Routing: If you have 5 different agents (e.g. Travel, Flights,
+ *      Hotels, Weather), the frontend simply calls `/api/copilotkit`, and this
+ *      gateway inspects `agentId` to route traffic to the correct backend server!
+ *
+ * 3. Port Mapping:
+ *    - Listens on: http://localhost:4002
+ *    - Exposes endpoint: /api/copilotkit
+ *    - Routes 'default' requests to Python LangGraph: http://127.0.0.1:8002
  */
 
 import { CopilotRuntime, createCopilotEndpoint } from "@copilotkit/runtime/v2";

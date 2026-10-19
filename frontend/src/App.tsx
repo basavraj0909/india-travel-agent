@@ -1,21 +1,31 @@
 /**
- * 🎙️ Stop 1: The User Interface — Where It All Begins
+ * 🎙️ The User Interface — React 19 + CopilotKit Chat Client (Port 3002)
  *
- * This React component renders the complete chat experience using CopilotKit.
+ * ============================================================================
+ * BEGINNER DEVELOPER ARCHITECTURE GUIDE:
+ * ============================================================================
  *
- * Key Concepts:
- * - agentId: Tells the CopilotRuntime gateway which backend agent to route to.
- *   - "default" -> LangGraph Agent on port 8002 (Groq / OpenAI)
- *   - "gemini"  -> Google ADK Agent on port 8009 (Google Gemini)
+ * 1. What is this component?
+ *    This React component is the primary user-facing interface for YatriAI.
+ *    It uses CopilotKit's pre-built `<CopilotChat />` component to render
+ *    a full-featured conversational interface.
  *
- * - <CopilotChat />: Out-of-the-box UI component that handles:
- *   - Chat bubbles and message history display
- *   - Auto-scrolling and live token streaming character-by-character
- *   - Generative UI component rendering
+ * 2. What does <CopilotChat /> handle automatically?
+ *    - Real-Time Token Streaming: Renders tokens character-by-character as they
+ *      arrive from Groq/OpenAI over Server-Sent Events (SSE).
+ *    - Auto-scrolling: Kept pinned to the bottom during live output.
+ *    - Message History: Displays human and AI bubbles with timestamps.
+ *    - Session Management: Manages thread IDs so the agent remembers multi-turn context.
+ *
+ * 3. The `agentId` prop:
+ *    Tells the CopilotRuntime Gateway (`:4002`) which backend agent to route messages to:
+ *    - "default" -> YatriAI LangGraph Agent (Port 8002, Groq / OpenAI)
+ *    - "gemini"  -> Google ADK Agent (Port 8009, Gemini)
  */
 
 import { CopilotChat } from "@copilotkit/react-core/v2";
 
+// Choose active agent backend: "default" (LangGraph :8002) or "gemini" (ADK :8009)
 export const agentId = "default";
 
 export default function App() {
