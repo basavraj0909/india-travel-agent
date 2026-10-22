@@ -103,6 +103,84 @@ Traditional REST APIs use Request-Response (`{"reply": "..."}`). Agents require 
 
 ---
 
+### 2.1 Code-Level Trace of One Real Message
+
+The diagram above is the mental model. This section is the **ground truth**, captured by hitting the running backend directly with `curl` (see [§5.8](#8-reproduce-the-full-event-stream-with-curl) for the command).
+
+**Input:** `"Name one fort in Jaipur in 5 words."`
+**Output:** `"Amber Fort of Jaipur, Rajasthan 🙏"`
+
+#### Step ① — Browser: where the request is born
+[`frontend/src/main.tsx`](frontend/src/main.tsx) wraps the app with a **relative** runtime URL — no host, no port:
+```tsx
+<CopilotKit runtimeUrl="/api/copilotkit" useSingleEndpoint={false}>
+```
+[`frontend/src/App.tsx`](frontend/src/App.tsx) renders `<CopilotChat agentId="default" />`. On Enter, CopilotChat builds an AG-UI payload. The `threadId` is generated client-side and **reused for the whole session** — it is the key that memory hangs on:
+```json
+{
+  "threadId": "walkthrough-demo-2",
+  "runId": "run-2",
+  "messages": [{ "id": "m1", "role": "user", "content": "Name one fort in Jaipur in 5 words." }],
+  "tools": [], "context": [], "state": {}, "forwardedProps": {}
+}
+```
+
+#### Step ② — Vite proxy: why there is no CORS config anywhere
+[`frontend/vite.config.ts`](frontend/vite.config.ts) → `proxy: { "/api/copilotkit": "http://127.0.0.1:4002" }`
+The browser believes it is talking to `:3002`; Vite forwards to `:4002` server-side.
+
+#### Step ③ — Gateway: `agentId` → backend URL
+[`frontend/server.ts`](frontend/server.ts) does a dictionary lookup — `agents.default` → `LangGraphHttpAgent({ url: "http://127.0.0.1:8002" })` — then opens an SSE stream to Python and **pipes every event straight back** to the browser. It adds nothing; it is a pure router.
+
+#### Step ④ — FastAPI + LangGraph: the graph is 4 nodes, not 1
+[`main.py`](main.py) → `add_langgraph_fastapi_endpoint(app, agent, path="/")` parses the payload, loads the `thread_id` from `MemorySaver`, and runs the graph. The `STEP_STARTED` events reveal the real node sequence:
+
+| Step | Node | Added by | Purpose |
+| :--- | :--- | :--- | :--- |
+| 1 | `CopilotKitMiddleware.before_agent` | `middleware=[CopilotKitMiddleware()]` | Injects a system msg `App Context: {"thread_id": …}` plus any frontend actions/context |
+| 2 | `model` | `create_agent(model=…)` | **The LLM call** |
+| 3 | `CopilotKitMiddleware.after_model` | middleware | Inspects output for tool calls / generative-UI payloads |
+| 4 | `CopilotKitMiddleware.after_agent` | middleware | Finalizes state for the frontend |
+
+#### Step ⑤ — What the `model` node actually sends to Groq
+The `TEXT_MESSAGE_END` event echoes the full `input`. This is **proof** that `system_prompt=` in `create_agent()` is prepended as message `[0]` on every call — it is the entire isolation mechanism:
+```
+[0] system : "You are 'YatriAI' … STRICT SCOPE & GUARDRAILS … 'REGRET! 🙏 …'"   ← INDIA_TRAVEL_SYSTEM_PROMPT
+[1] human  : "Name one fort in Jaipur in 5 words."
+[2] system : "App Context: { \"thread_id\": \"walkthrough-demo-2\" }"              ← injected by before_agent
+```
+Usage from the same event: `model=openai/gpt-oss-120b`, `inputTokens=553` (mostly the prompt), `outputTokens=153` of which `reasoningTokens=136` — only ~17 tokens became visible text.
+
+#### Step ⑥ — The SSE stream, filtered to what matters
+The raw stream also carries one `{"type":"RAW", …}` event per internal LangChain callback — the browser ignores those. The events `<CopilotChat>` acts on:
+```json
+{"type":"RUN_STARTED","threadId":"walkthrough-demo-2","runId":"run-2"}
+{"type":"STEP_STARTED","stepName":"CopilotKitMiddleware.before_agent"}
+{"type":"STEP_FINISHED","stepName":"CopilotKitMiddleware.before_agent"}
+{"type":"STEP_STARTED","stepName":"model"}
+{"type":"TEXT_MESSAGE_START","messageId":"lc_run--01a15e06-…"}
+{"type":"TEXT_MESSAGE_CONTENT","messageId":"lc_run--01a15e06-…","delta":"Amber"}
+{"type":"TEXT_MESSAGE_CONTENT","messageId":"lc_run--01a15e06-…","delta":" Fort"}
+{"type":"TEXT_MESSAGE_CONTENT","messageId":"lc_run--01a15e06-…","delta":" of"}
+{"type":"TEXT_MESSAGE_CONTENT","messageId":"lc_run--01a15e06-…","delta":" Jaipur,"}
+{"type":"TEXT_MESSAGE_CONTENT","messageId":"lc_run--01a15e06-…","delta":" Rajasthan"}
+{"type":"TEXT_MESSAGE_CONTENT","messageId":"lc_run--01a15e06-…","delta":" 🙏"}
+{"type":"TEXT_MESSAGE_END","messageId":"lc_run--01a15e06-…"}
+{"type":"STEP_FINISHED","stepName":"model"}
+{"type":"STEP_STARTED","stepName":"CopilotKitMiddleware.after_model"}
+{"type":"STEP_FINISHED","stepName":"CopilotKitMiddleware.after_model"}
+{"type":"STEP_STARTED","stepName":"CopilotKitMiddleware.after_agent"}
+{"type":"STEP_FINISHED","stepName":"CopilotKitMiddleware.after_agent"}
+{"type":"RUN_FINISHED","threadId":"walkthrough-demo-2","runId":"run-2","usage":[{"model":"openai/gpt-oss-120b","inputTokens":553,"outputTokens":153,"reasoningTokens":136}]}
+```
+`<CopilotChat>` appends each `delta` to the bubble whose `messageId` matches — that is the entire typewriter effect.
+
+#### Step ⑦ — Checkpoint
+After `RUN_FINISHED`, `MemorySaver` persists the full message list under `thread_id`. The next message on the same thread will have `"Name one fort…"` + `"Amber Fort…"` pre-loaded before the LLM sees it.
+
+---
+
+
 ## 3. Backend Code Breakdown
 
 ### `adk_server.py` (Google ADK + Gemini)
@@ -278,3 +356,32 @@ To toggle between OpenAI and Gemini:
 - Go to the **Network** tab.
 - Filter by `copilotkit`.
 - Look at the `connect` request: under **EventStream**, you can watch live AG-UI protocol events arriving chunk-by-chunk!
+
+### 8. Reproduce the full event stream with `curl`
+Bypass the browser **and** the gateway and talk to the Python agent directly. This is how the trace in [§2.1](#21-code-level-trace-of-one-real-message) was captured.
+
+```bash
+curl -s -N -X POST http://127.0.0.1:8002/ \
+  -H "Content-Type: application/json" \
+  -H "Accept: text/event-stream" \
+  -d '{
+    "threadId": "debug-1",
+    "runId": "run-1",
+    "messages": [{"id":"m1","role":"user","content":"Name one fort in Jaipur in 5 words."}],
+    "tools": [], "context": [], "state": {}, "forwardedProps": {}
+  }'
+```
+
+Filter out the noisy `RAW` events and show only the ones the UI acts on:
+```bash
+curl -s -N -X POST http://127.0.0.1:8002/ \
+  -H "Content-Type: application/json" -H "Accept: text/event-stream" \
+  -d '{"threadId":"debug-1","runId":"run-1","messages":[{"id":"m1","role":"user","content":"Name one fort in Jaipur in 5 words."}],"tools":[],"context":[],"state":{},"forwardedProps":{}}' \
+  | grep -E '"type":"(RUN_|STEP_|TEXT_MESSAGE_)' \
+  | sed 's/^data: //'
+```
+
+**Test memory:** send a second request with the **same** `threadId` and a question like `"What did I just ask you?"` — the agent will answer from the `MemorySaver` checkpoint.
+
+**Test guardrails:** change `content` to `"Write a quicksort in Python"` and watch the `TEXT_MESSAGE_CONTENT` deltas spell out the refusal.
+
