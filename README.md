@@ -1,6 +1,7 @@
 # YatriAI (यात्री AI) — Incredible India Travel Assistant 🇮🇳
 
-An enterprise travel agent application dedicated exclusively to tourism and travel in India (Bharat). Powered by **CopilotKit**, a multi-agent API Gateway, and a backend agent server built with **LangGraph** (Groq / OpenAI) with strict domain guardrails.
+An enterprise travel agent application dedicated exclusively to tourism and travel in India (Bharat). 
+Powered by **CopilotKit**, a multi-agent API Gateway, and a backend agent server built with **LangGraph** (Groq / OpenAI) with strict domain guardrails.
 
 ---
 
