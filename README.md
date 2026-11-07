@@ -148,7 +148,7 @@ Create another **Web Service** from the same repository:
 
 - Root directory: `frontend`
 - Runtime: Node
-- Build command: `npm ci --include=dev`
+- Build command: `npm ci --include=dev --registry=https://registry.npmjs.org/`
 - Start command: `npm run start:gateway`
 
 Set these environment variables:
