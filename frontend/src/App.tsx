@@ -23,10 +23,71 @@
  *    - "gemini"  -> Google ADK Agent (Port 8009, Gemini)
  */
 
-import { CopilotChat } from "@copilotkit/react-core/v2";
+import { useEffect, useState } from "react";
+import {
+  CopilotChat,
+  CopilotChatView,
+  type CopilotChatViewProps,
+} from "@copilotkit/react-core/v2";
 
 // Choose active agent backend: "default" (LangGraph :8002) or "gemini" (ADK :8009)
 export const agentId = "default";
+
+function TravelChatViewComponent(props: CopilotChatViewProps) {
+  const messages = props.messages ?? [];
+  const lastUserMessageIndex = messages.findLastIndex(
+    (message) => message.role === "user",
+  );
+  const hasAssistantStarted = messages
+    .slice(lastUserMessageIndex + 1)
+    .some(
+      (message) =>
+        message.role === "assistant" &&
+        typeof message.content === "string" &&
+        message.content.trim().length > 0,
+    );
+  const isWaitingForReply =
+    props.isRunning && lastUserMessageIndex >= 0 && !hasAssistantStarted;
+  const [waitingSeveralSeconds, setWaitingSeveralSeconds] = useState(false);
+
+  useEffect(() => {
+    if (!isWaitingForReply) {
+      setWaitingSeveralSeconds(false);
+      return;
+    }
+
+    const timeout = window.setTimeout(
+      () => setWaitingSeveralSeconds(true),
+      4000,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [isWaitingForReply]);
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      {isWaitingForReply && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex items-center justify-center gap-3 border-b border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm text-amber-950"
+        >
+          <span
+            aria-hidden="true"
+            className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-amber-700/25 border-t-amber-700"
+          />
+          <span>
+            {waitingSeveralSeconds
+              ? "The free service may be waking after inactivity. The first reply can take up to a minute; please keep this page open."
+              : "YatriAI is connecting and preparing your reply..."}
+          </span>
+        </div>
+      )}
+      <CopilotChatView {...props} className="min-h-0 flex-1" />
+    </div>
+  );
+}
+
+const TravelChatView = Object.assign(TravelChatViewComponent, CopilotChatView);
 
 export default function App() {
   return (
@@ -65,6 +126,7 @@ export default function App() {
       <main className="flex-1 flex flex-col overflow-hidden">
         <CopilotChat
           agentId={agentId}
+          chatView={TravelChatView}
           labels={{
             welcomeMessageText:
               "Namaste 🙏 Welcome to YatriAI! I’m your India travel companion. Where would you like to explore?",

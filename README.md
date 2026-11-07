@@ -141,7 +141,9 @@ The currently deployed demo URLs are:
 These are deployment-specific examples; your service names and URLs may differ.
 
 Render's free services may sleep while idle, making the first request slower.
-Free-tier limits and eligibility can change; check
+While a reply is starting, the chat displays a waiting message; after a few
+seconds it reminds visitors that a free service may be waking and asks them to
+keep the page open. Free-tier limits and eligibility can change; check
 [Render pricing](https://render.com/pricing). The LLM provider also has separate
 usage limits. Hosting the app does not make model API usage unlimited.
 
