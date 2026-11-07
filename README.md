@@ -121,63 +121,134 @@ This starts (cross-platform on Windows, macOS, and Linux):
 
 ---
 
-## ☁️ Free Demo Deployment (Vercel + Render)
+## ☁️ Free Demo Deployment (Render)
 
-The app can be deployed using free hosting tiers, subject to each provider's
-current limits and account requirements. Free backend services may sleep while
-idle, so the first visit or chat after a period of inactivity can take longer.
-The LLM provider may also enforce its own usage limits; hosting does not make
-model API usage unlimited.
+The demo is deployed as three separate Render services, all connected to the
+same GitHub repository and `main` branch:
 
-### 1. Deploy the Python agent on Render
+| Service | Render service type | Root directory | Role |
+| :--- | :--- | :--- | :--- |
+| Python agent | Web Service (Python) | repository root (blank) | Runs FastAPI/LangGraph and calls the LLM |
+| CopilotKit gateway | Web Service (Node) | `frontend` | Routes browser chat requests to the Python agent |
+| React frontend | Static Site | `frontend` | Serves the built Vite application |
 
-Create a **Web Service** from this repository with:
+The currently deployed demo URLs are:
 
-- Root directory: repository root
+- Frontend: <https://india-travel-frontend2.onrender.com>
+- Gateway: <https://india-travel-gateway.onrender.com>
+- Python agent: <https://india-travel-agent.onrender.com>
+
+These are deployment-specific examples; your service names and URLs may differ.
+
+Render's free services may sleep while idle, making the first request slower.
+Free-tier limits and eligibility can change; check
+[Render pricing](https://render.com/pricing). The LLM provider also has separate
+usage limits. Hosting the app does not make model API usage unlimited.
+
+### 1. Deploy the Python agent
+
+Create a **Web Service** from this repository:
+
+- Branch: `main`
+- Root directory: leave blank (repository root)
 - Runtime: Python
 - Build command: `pip install -r requirements.txt`
 - Start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+- Instance type: Free, if available
 
-Add `GROQ_API_KEY` as a secret environment variable in Render. Optionally set
-`GROQ_MODEL`. Do not put API keys in frontend or Vercel environment variables.
-Copy the deployed backend URL for the gateway setup.
+Add these environment variables in the Python service's **Environment** page:
 
-### 2. Deploy the CopilotKit gateway on Render
+| Key | Value |
+| :--- | :--- |
+| `PYTHON_VERSION` | `3.12.10` |
+| `GROQ_API_KEY` | Your Groq API key (enter it directly as a secret in Render) |
+| `GROQ_MODEL` | Optional; defaults to `openai/gpt-oss-120b` |
 
-Create another **Web Service** from the same repository:
+`copilotkit==0.1.86` in `requirements.txt` supports Python 3.10 through 3.12,
+so pin the Render service to Python 3.12. Do not put provider API keys in the
+frontend or gateway service. Save the Python service's public URL for step 2.
 
+### 2. Deploy the CopilotKit gateway
+
+Create a second **Web Service** from the same repository:
+
+- Branch: `main`
 - Root directory: `frontend`
 - Runtime: Node
-- Build command: `npm ci --include=dev --registry=https://registry.npmjs.org/`
+- Build command:
+  `npm ci --include=dev --registry=https://registry.npmjs.org/`
 - Start command: `npm run start:gateway`
+- Instance type: Free, if available
 
-Set these environment variables:
+Set these variables in the gateway service's **Environment** page:
 
-- `LANGGRAPH_DEPLOYMENT_URL`: the deployed Python backend URL
-- `FRONTEND_ORIGINS`: the exact Vercel site origin, such as
-  `https://your-project.vercel.app` (no path or trailing slash). Add any other
-  allowed site origins as a comma-separated list.
+| Key | Value |
+| :--- | :--- |
+| `LANGGRAPH_DEPLOYMENT_URL` | Python agent URL, e.g. `https://india-travel-agent.onrender.com` |
+| `FRONTEND_ORIGINS` | Exact frontend origin, e.g. `https://india-travel-frontend2.onrender.com` |
 
-Copy the gateway URL for the frontend setup.
+Use the origin only: no path and no trailing slash. If more than one frontend
+origin needs access, separate the origins with commas. The gateway listens on
+Render's assigned `PORT` and binds to `0.0.0.0`; those settings are handled by
+`frontend/server.ts`.
 
-### 3. Deploy the frontend on Vercel
+The npm registry option is intentional. The lockfile uses public npm registry
+tarball URLs; the explicit registry also avoids inheriting a private registry
+default during installation.
 
-Import the repository as a Vercel project and set:
+### 3. Deploy the React frontend
 
+Create a **Static Site** (not a Web Service) from the same repository:
+
+- Branch: `main`
 - Root directory: `frontend`
-- Build command: `npm run build`
-- Output directory: `dist`
-- Environment variable `VITE_COPILOTKIT_RUNTIME_URL`:
-  `https://your-gateway.onrender.com/api/copilotkit`
+- Build command:
+  `npm ci --include=dev --registry=https://registry.npmjs.org/ && npm run build`
+- Publish directory: `dist`
+- Instance type: Free, if available
 
-After deployment, make sure the Vercel site origin is listed in the gateway's
-`FRONTEND_ORIGINS` setting, then redeploy the gateway if you changed it. Test a
-chat from the public URL; a successful page load alone does not confirm that
-the gateway and model are connected.
+Set this environment variable on the static site:
 
-Check [Render pricing](https://render.com/pricing) and
-[Vercel pricing](https://vercel.com/pricing) before deployment because free-tier
-limits and eligibility can change.
+| Key | Value |
+| :--- | :--- |
+| `VITE_COPILOTKIT_RUNTIME_URL` | Gateway URL plus `/api/copilotkit`, e.g. `https://india-travel-gateway.onrender.com/api/copilotkit` |
+
+Vite embeds this value into the frontend at build time. After changing it,
+redeploy the static site. Once Render assigns the static site's URL, copy its
+origin (for example `https://india-travel-frontend2.onrender.com`) into the
+gateway's `FRONTEND_ORIGINS` variable and redeploy the gateway.
+
+### 4. Verify the deployment
+
+1. Open the frontend URL and confirm that the page and welcome message load.
+2. Send a chat message and wait for an assistant reply. A successful page load
+   by itself does not verify the gateway, Python agent, or model connection.
+3. Check that the gateway info endpoint responds:
+   `https://YOUR-GATEWAY.onrender.com/api/copilotkit/info`
+4. If chat fails, check the Render logs for **both** the gateway and Python
+   service, and verify all three URLs/environment settings above. The agent's
+   root URL may return `405 Method Not Allowed` for a browser `GET`; it expects
+   the agent protocol's `POST` requests, so that response alone does not mean
+   the service is down.
+
+### Troubleshooting deployment
+
+- **Python build cannot find `copilotkit==0.1.86`:** set
+  `PYTHON_VERSION=3.12.10` on the Python Web Service, then redeploy.
+- **npm tries `airlock-proxy.uplink.goog:999`:** use the npm registry build
+  command above. The committed `frontend/package-lock.json` replaces those
+  inaccessible internal mirror URLs with public npm URLs.
+- **`vite: not found`:** the frontend must be a **Static Site** with root
+  directory `frontend`, not a Python Web Service. Its build command must run
+  `npm ci` before `npm run build`.
+- **Page loads, but chat stays blank after sending:** verify the frontend's
+  `VITE_COPILOTKIT_RUNTIME_URL`, the gateway's `LANGGRAPH_DEPLOYMENT_URL` and
+  `FRONTEND_ORIGINS`, and the backend's `GROQ_API_KEY`. Redeploy the service
+  whose environment variable you changed.
+- **npm reports audit vulnerabilities:** these warnings did not prevent the
+  gateway build from succeeding. Review `npm audit` separately; avoid
+  `npm audit fix --force` without reviewing potentially breaking dependency
+  updates.
 
 ---
 
