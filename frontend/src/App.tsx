@@ -51,9 +51,25 @@ export default function App() {
         </div>
       </header>
 
+      <aside
+        role="note"
+        className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-sm text-amber-950"
+      >
+        <span className="font-semibold">Information note:</span>{" "}
+        YatriAI’s built-in knowledge is current through 2024 and may not reflect
+        later changes. Please verify current prices, schedules, opening hours,
+        and travel requirements with official sources.
+      </aside>
+
       {/* Main Chat Interface */}
       <main className="flex-1 flex flex-col overflow-hidden">
-        <CopilotChat agentId={agentId} />
+        <CopilotChat
+          agentId={agentId}
+          labels={{
+            welcomeMessageText:
+              "Namaste 🙏 Welcome to YatriAI! I’m your India travel companion. Where would you like to explore?",
+          }}
+        />
       </main>
     </div>
   );
