@@ -9,7 +9,12 @@ import App from "./App";
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <main className="h-screen w-screen">
-      <CopilotKit runtimeUrl="/api/copilotkit" useSingleEndpoint={false}>
+      <CopilotKit
+        runtimeUrl={
+          import.meta.env.VITE_COPILOTKIT_RUNTIME_URL || "/api/copilotkit"
+        }
+        useSingleEndpoint={false}
+      >
         <App />
       </CopilotKit>
     </main>

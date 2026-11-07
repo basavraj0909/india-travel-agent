@@ -46,12 +46,27 @@ const runtime = new CopilotRuntime({
   },
 });
 
+const frontendOrigins = (process.env.FRONTEND_ORIGINS ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const allowedOrigins =
+  frontendOrigins.length > 0
+    ? frontendOrigins
+    : ["http://localhost:3002", "http://127.0.0.1:3002"];
+
 // 3. Expose the /api/copilotkit endpoint on port 4002
 const app = createCopilotEndpoint({
   runtime,
   basePath: "/api/copilotkit",
+  cors: {
+    origin: (origin) => (allowedOrigins.includes(origin) ? origin : null),
+  },
 });
 
-serve({ fetch: app.fetch, port: 4002 }, () => {
-  console.log("CopilotKit API server running at http://localhost:4002");
+const port = Number(process.env.PORT ?? 4002);
+
+serve({ fetch: app.fetch, hostname: "0.0.0.0", port }, () => {
+  console.log(`CopilotKit API server listening on port ${port}`);
 });

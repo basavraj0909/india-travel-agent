@@ -121,6 +121,66 @@ This starts (cross-platform on Windows, macOS, and Linux):
 
 ---
 
+## ☁️ Free Demo Deployment (Vercel + Render)
+
+The app can be deployed using free hosting tiers, subject to each provider's
+current limits and account requirements. Free backend services may sleep while
+idle, so the first visit or chat after a period of inactivity can take longer.
+The LLM provider may also enforce its own usage limits; hosting does not make
+model API usage unlimited.
+
+### 1. Deploy the Python agent on Render
+
+Create a **Web Service** from this repository with:
+
+- Root directory: repository root
+- Runtime: Python
+- Build command: `pip install -r requirements.txt`
+- Start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+
+Add `GROQ_API_KEY` as a secret environment variable in Render. Optionally set
+`GROQ_MODEL`. Do not put API keys in frontend or Vercel environment variables.
+Copy the deployed backend URL for the gateway setup.
+
+### 2. Deploy the CopilotKit gateway on Render
+
+Create another **Web Service** from the same repository:
+
+- Root directory: `frontend`
+- Runtime: Node
+- Build command: `npm ci --include=dev`
+- Start command: `npm run start:gateway`
+
+Set these environment variables:
+
+- `LANGGRAPH_DEPLOYMENT_URL`: the deployed Python backend URL
+- `FRONTEND_ORIGINS`: the exact Vercel site origin, such as
+  `https://your-project.vercel.app` (no path or trailing slash). Add any other
+  allowed site origins as a comma-separated list.
+
+Copy the gateway URL for the frontend setup.
+
+### 3. Deploy the frontend on Vercel
+
+Import the repository as a Vercel project and set:
+
+- Root directory: `frontend`
+- Build command: `npm run build`
+- Output directory: `dist`
+- Environment variable `VITE_COPILOTKIT_RUNTIME_URL`:
+  `https://your-gateway.onrender.com/api/copilotkit`
+
+After deployment, make sure the Vercel site origin is listed in the gateway's
+`FRONTEND_ORIGINS` setting, then redeploy the gateway if you changed it. Test a
+chat from the public URL; a successful page load alone does not confirm that
+the gateway and model are connected.
+
+Check [Render pricing](https://render.com/pricing) and
+[Vercel pricing](https://vercel.com/pricing) before deployment because free-tier
+limits and eligibility can change.
+
+---
+
 ## 🛠️ Switching Between Agents
 
 To switch the active agent in the frontend UI, open [`frontend/src/App.tsx`](frontend/src/App.tsx) and set `agentId`:
@@ -222,4 +282,3 @@ sequenceDiagram
 | **Execution Engine**   | Single prompt string sent to API                 | **LangGraph State Machine**: Directed cyclic graphs with conditional edges and tools         |
 | **State & Memory**     | Ephemeral (lost on refresh or in `localStorage`) | **Server-Side Checkpointing**: Thread-safe persistence via `MemorySaver` and `threadId`      |
 | **UI Interaction**     | Plain markdown text bubbles only                 | **Generative UI**: Agents dynamically control rich interactive React UI widgets               |
-

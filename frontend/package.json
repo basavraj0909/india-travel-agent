@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently -k -n \"gateway,vite\" -c \"cyan,magenta\" \"node --import tsx/esm watch-server.ts\" \"vite\"",
+    "start:gateway": "node --import tsx/esm server.ts",
     "build": "vite build",
     "preview": "vite preview",
     "test:e2e": "playwright test"
@@ -36,5 +37,10 @@
     "tsx": "^4",
     "typescript": "^5",
     "vite": "^6"
+  },
+  "allowScripts": {
+    "@scarf/scarf@1.4.0": true,
+    "esbuild@0.28.2": true,
+    "esbuild@0.25.12": true
   }
 }
